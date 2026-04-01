@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BugUs — Debug or Die</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #050a0f;
+    --panel: rgba(0,255,180,0.04);
+    --border: rgba(0,255,180,0.15);
+    --p1: #00ffb4;
+    --p2: #ff4d6d;
+    --accent: #ffe600;
+    --dead: #444;
+    --text: #e0fff5;
+    --shadow1: 0 0 20px rgba(0,255,180,0.4);
+    --shadow2: 0 0 20px rgba(255,77,109,0.4);
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    font-family: 'Share Tech Mono', monospace;
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Animated grid bg */
+  body::before {
+    content:'';
+    position:fixed;
+    inset:0;
+    background:
+      linear-gradient(rgba(0,255,180,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,255,180,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    animation: gridMove 20s linear infinite;
+    pointer-events:none;
+  }
+  @keyframes gridMove {
+    0%{background-position:0 0;}
+    100%{background-position:40px 40px;}
+  }
+
+  /* Corner decorations */
+  body::after {
+    content:'';
+    position:fixed;
+    inset:0;
+    background:
+      radial-gradient(ellipse at 0% 0%, rgba(0,255,180,0.08) 0%, transparent 50%),
+      radial-gradient(ellipse at 100% 100%, rgba(255,77,109,0.08) 0%, transparent 50%);
+    pointer-events:none;
+  }
+
+  /* ===== SCREENS ===== */
+  .screen {
+    display: none;
+    position: fixed;
+    inset: 0;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    z-index: 10;
+  }
+  .screen.active { display: flex; }
+
+  /* ===== TITLE SCREEN ===== */
+  #titleScreen {
+    gap: 0;
+    text-align: center;
+  }
+
+  .title-logo {
+    font-family: 'Orbitron', sans-serif;
+    font-size: clamp(3rem, 10vw, 7rem);
+    font-weight: 900;
+    letter-spacing: 0.05em;
+    line-height: 1;
+    background: linear-gradient(135deg, var(--p1), #00c8ff, var(--p1));
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: shimmer 3s linear infinite, glowPulse 2s ease-in-out infinite;
+    margin-bottom: 0.2em;
+  }
+  @keyframes shimmer {
+    0%{background-position:0% center;}
+    100%{background-position:200% center;}
+  }
+  @keyframes glowPulse {
+    0%,100%{filter:drop-shadow(0 0 20px rgba(0,255,180,0.6));}
+    50%{filter:drop-shadow(0 0 40px rgba(0,255,180,1));}
+  }
+
+  .title-sub {
+    font-family: 'Orbitron', sans-serif;
+    font-size: clamp(0.8rem, 2.5vw, 1.2rem);
+    color: var(--p2);
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    margin-bottom: 3rem;
+    animation: blink 1.5s step-end infinite;
+  }
+  @keyframes blink {
+    0%,100%{opacity:1;} 50%{opacity:0.3;}
+  }
+
+  .controls-preview {
+    display: flex;
+    gap: 3rem;
+    margin-bottom: 2.5rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .player-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.2rem 2rem;
+    backdrop-filter: blur(10px);
+    min-width: 180px;
+  }
+  .player-card.p1 { border-color: var(--p1); box-shadow: var(--shadow1); }
+  .player-card.p2 { border-color: var(--p2); box-shadow: var(--shadow2); }
+
+  .player-card h3 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.75rem;
+    letter-spacing: 0.2em;
+    margin-bottom: 0.8rem;
+  }
+  .p1 h3 { color: var(--p1); }
+  .p2 h3 { color: var(--p2); }
+
+  .key-row {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    margin: 0.3rem 0;
+    font-size: 0.85rem;
+  }
+  .key {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 6px;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.75rem;
+    font-family: 'Orbitron', sans-serif;
+  }
+
+  .start-btn {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    padding: 1rem 3rem;
+    background: transparent;
+    border: 2px solid var(--p1);
+    color: var(--p1);
+    border-radius: 50px;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s;
+    text-transform: uppercase;
+  }
+  .start-btn::before {
+    content:'';
+    position:absolute;
+    inset:0;
+    background: var(--p1);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.3s;
+    z-index:-1;
+  }
+  .start-btn:hover {
+    color: var(--bg);
+    box-shadow: var(--shadow1);
+  }
+  .start-btn:hover::before { transform: scaleX(1); }
+
+  /* ===== GAME SCREEN ===== */
+  #gameScreen { padding: 0; }
+
+  .game-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  /* HUD */
+  .hud {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 0.6rem 1.5rem;
+    background: rgba(5,10,15,0.9);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(10px);
+    z-index: 20;
+    flex-shrink: 0;
+  }
+
+  .hud-player {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+  }
+
+  .hud-name {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+  }
+  .hud-name.p1 { color: var(--p1); }
+  .hud-name.p2 { color: var(--p2); }
+
+  .health-bar-wrap {
+    width: 120px;
+    height: 8px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .health-bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.2s ease;
+  }
+  .health-bar.p1 { background: linear-gradient(90deg, var(--p1), #00c8ff); }
+  .health-bar.p2 { background: linear-gradient(90deg, var(--p2), #ff8fa0); }
+
+  .hp-text {
+    font-size: 0.7rem;
+    opacity: 0.7;
+    min-width: 2.5rem;
+  }
+
+  .hud-center {
+    text-align: center;
+  }
+  .round-label {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.6rem;
+    letter-spacing: 0.3em;
+    color: rgba(255,255,255,0.4);
+    text-transform: uppercase;
+  }
+  .score-display {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.3rem;
+    font-weight: 900;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+  }
+
+  /* Canvas area */
+  .canvas-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    overflow: hidden;
+    position: relative;
+  }
+
+  #gameCanvas {
+    display: block;
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+  }
+
+  /* Debug log at bottom */
+  .debug-log {
+    width: 100%;
+    padding: 0.4rem 1.5rem;
+    background: rgba(5,10,15,0.95);
+    border-top: 1px solid var(--border);
+    font-size: 0.7rem;
+    color: var(--p1);
+    font-family: 'Share Tech Mono', monospace;
+    height: 28px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  /* ===== WIN SCREEN ===== */
+  #winScreen { gap: 1.5rem; text-align: center; }
+
+  .win-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: clamp(2rem, 8vw, 5rem);
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    animation: winPulse 1s ease-in-out infinite;
+  }
+  @keyframes winPulse {
+    0%,100%{transform:scale(1);} 50%{transform:scale(1.05);}
+  }
+  .win-title.p1win { color: var(--p1); text-shadow: 0 0 40px var(--p1); }
+  .win-title.p2win { color: var(--p2); text-shadow: 0 0 40px var(--p2); }
+
+  .win-sub {
+    font-size: 1rem;
+    opacity: 0.6;
+    letter-spacing: 0.2em;
+  }
+
+  .win-btns { display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center; }
+
+  .btn-outline {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.85rem;
+    letter-spacing: 0.1em;
+    padding: 0.8rem 2rem;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.2);
+    color: var(--text);
+    border-radius: 50px;
+    cursor: pointer;
+    transition: all 0.3s;
+  }
+  .btn-outline:hover {
+    border-color: var(--p1);
+    color: var(--p1);
+    box-shadow: var(--shadow1);
+  }
+
+  /* ===== TOUCH CONTROLS ===== */
+  .touch-ui {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 180px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding: 0 1rem 1rem;
+    z-index: 50;
+    pointer-events: none;
+  }
+
+  .touch-side {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    pointer-events: all;
+  }
+
+  .dpad {
+    display: grid;
+    grid-template-columns: repeat(3, 48px);
+    grid-template-rows: repeat(3, 48px);
+    gap: 3px;
+  }
+
+  .dpad-btn {
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    transition: background 0.1s;
+    color: rgba(255,255,255,0.6);
+  }
+  .dpad-btn:active, .dpad-btn.pressed {
+    background: rgba(255,255,255,0.2);
+  }
+  .dpad-blank { background: transparent; border: none; }
+
+  .atk-btn {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    border: 2px solid;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 6px;
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+  .atk-btn:active, .atk-btn.pressed {
+    transform: scale(0.92);
+  }
+  .atk-p1 {
+    background: rgba(0,255,180,0.15);
+    border-color: var(--p1);
+    color: var(--p1);
+    box-shadow: 0 0 12px rgba(0,255,180,0.3);
+  }
+  .atk-p1.pressed { box-shadow: 0 0 24px rgba(0,255,180,0.7); }
+  .atk-p2 {
+    background: rgba(255,77,109,0.15);
+    border-color: var(--p2);
+    color: var(--p2);
+    box-shadow: 0 0 12px rgba(255,77,109,0.3);
+  }
+  .atk-p2.pressed { box-shadow: 0 0 24px rgba(255,77,109,0.7); }
+
+  /* Scanlines overlay */
+  .scanlines {
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  /* Floating particles */
+  .particle {
+    position: fixed;
+    width: 2px;
+    height: 2px;
+    background: var(--p1);
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 5;
+    animation: floatUp linear infinite;
+    opacity: 0;
+  }
+  @keyframes floatUp {
+    0%{transform:translateY(100vh) translateX(0);opacity:0;}
+    10%{opacity:0.6;}
+    90%{opacity:0.2;}
+    100%{transform:translateY(-20px) translateX(30px);opacity:0;}
+  }
+</style>
+</head>
+<body>
+
+<div class="scanlines"></div>
+
+<!-- Particles -->
+<div id="particles"></div>
+
+<!-- TITLE SCREEN -->
+<div class="screen active" id="titleScreen">
+  <div class="title-logo">BugUs</div>
+  <div class="title-sub">— Debug or Die —</div>
+
+  <div class="controls-preview">
+    <div class="player-card p1">
+      <h3>⬡ DEBUGGER_01</h3>
+      <div class="key-row"><span class="key">W</span> Move Up</div>
+      <div class="key-row"><span class="key">A</span><span class="key">D</span> Move</div>
+      <div class="key-row"><span class="key">S</span> Move Down</div>
+      <div class="key-row"><span class="key">F</span> Attack</div>
+    </div>
+    <div class="player-card p2">
+      <h3>⬡ DEBUGGER_02</h3>
+      <div class="key-row"><span class="key">↑</span> Move Up</div>
+      <div class="key-row"><span class="key">←</span><span class="key">→</span> Move</div>
+      <div class="key-row"><span class="key">↓</span> Move Down</div>
+      <div class="key-row"><span class="key">L</span> Attack</div>
+    </div>
+  </div>
+
+  <button class="start-btn" onclick="startGame()">INITIALIZE GAME</button>
+</div>
+
+<!-- GAME SCREEN -->
+<div class="screen" id="gameScreen">
+  <div class="game-wrapper">
+    <div class="hud">
+      <div class="hud-player">
+        <span class="hud-name p1">DEBUGGER_01</span>
+        <div class="health-bar-wrap">
+          <div class="health-bar p1" id="hp1bar" style="width:100%"></div>
+        </div>
+        <span class="hp-text" id="hp1text">100</span>
+      </div>
+
+      <div class="hud-center">
+        <div class="round-label">SCORE</div>
+        <div class="score-display" id="scoreDisplay">0 — 0</div>
+      </div>
+
+      <div class="hud-player">
+        <span class="hp-text" id="hp2text">100</span>
+        <div class="health-bar-wrap">
+          <div class="health-bar p2" id="hp2bar" style="width:100%"></div>
+        </div>
+        <span class="hud-name p2">DEBUGGER_02</span>
+      </div>
+    </div>
+
+    <div class="canvas-container">
+      <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <div class="debug-log" id="debugLog">&gt; SYSTEM INITIALIZED... RUNTIME ACTIVE...</div>
+  </div>
+
+  <!-- Touch Controls -->
+  <div class="touch-ui" id="touchUI">
+    <div class="touch-side">
+      <div class="dpad">
+        <div class="dpad-blank"></div>
+        <div class="dpad-btn" id="p1up">&#x25B2;</div>
+        <div class="dpad-blank"></div>
+        <div class="dpad-btn" id="p1left">&#x25C4;</div>
+        <div class="dpad-blank"></div>
+        <div class="dpad-btn" id="p1right">&#x25BA;</div>
+        <div class="dpad-blank"></div>
+        <div class="dpad-btn" id="p1down">&#x25BC;</div>
+        <div class="dpad-blank"></div>
+      </div>
+      <button class="atk-btn atk-p1" id="p1atk">ATK</button>
+    </div>
+    <div class="touch-side">
+      <div class="dpad">
+        <div class="dpad-blank"></div>
+        <div class="dpad-btn" id="p2up">&#x25B2;</div>
+        <div class="dpad-blank"></div>
+        <div class="dpad-btn" id="p2left">&#x25C4;</div>
+        <div class="dpad-blank"></div>
+        <div class="dpad-btn" id="p2right">&#x25BA;</div>
+        <div class="dpad-blank"></div>
+        <div class="dpad-btn" id="p2down">&#x25BC;</div>
+        <div class="dpad-blank"></div>
+      </div>
+      <button class="atk-btn atk-p2" id="p2atk">ATK</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- WIN SCREEN -->
+<div class="screen" id="winScreen">
+  <div class="win-title" id="winTitle">PLAYER 1 WINS</div>
+  <div class="win-sub">PROCESS TERMINATED</div>
+  <div class="win-btns">
+    <button class="btn-outline" onclick="startGame()">REMATCH</button>
+    <button class="btn-outline" onclick="showTitle()">MAIN MENU</button>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// PARTICLES
+// ============================================================
+(function spawnParticles(){
+  const c = document.getElementById('particles');
+  for(let i=0;i<20;i++){
+    const p = document.createElement('div');
+    p.className='particle';
+    p.style.left = Math.random()*100+'vw';
+    p.style.animationDuration = (8+Math.random()*12)+'s';
+    p.style.animationDelay = (-Math.random()*20)+'s';
+    p.style.width = p.style.height = (1+Math.random()*2)+'px';
+    p.style.background = Math.random()>0.5?'#00ffb4':'#ff4d6d';
+    p.style.opacity = '0';
+    c.appendChild(p);
+  }
+})();
+
+// ============================================================
+// GAME ENGINE
+// ============================================================
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+let W, H;
+function resize(){
+  const container = document.querySelector('.canvas-container');
+  const maxW = Math.min(container.clientWidth, 900);
+  const maxH = container.clientHeight;
+  W = canvas.width = maxW;
+  H = canvas.height = maxH;
+}
+
+// Game state
+let keys = {};
+let gameLoop = null;
+let scores = [0,0];
+let debugMessages = [
+  '> RUNTIME ACTIVE...',
+  '> STACK OVERFLOW DETECTED',
+  '> NULL POINTER EXCEPTION',
+  '> SEGMENTATION FAULT',
+  '> MEMORY LEAK: 420KB',
+  '> KERNEL PANIC',
+  '> BUG INJECTED',
+  '> DEBUG MODE: ON',
+  '> ERROR_CODE: 0xDEAD',
+  '> COMPILING...',
+];
+
+const PLAYER_R = 22;
+const SPEED = 3.5;
+const ATTACK_CD = 700; // ms
+const ATTACK_DMG = 14;
+const PROJ_SPEED = 7;
+const MAX_HP = 100;
+
+let players, projectiles, particles_game, debugLog_timer;
+
+function initPlayers(){
+  players = [
+    {
+      x: W*0.25, y: H*0.5,
+      vx:0, vy:0,
+      hp: MAX_HP,
+      color: '#00ffb4',
+      glow: 'rgba(0,255,180,',
+      lastAtk: 0,
+      dead: false,
+      trail: [],
+      num: 1,
+      facing: 1, // 1=right,-1=left
+    },
+    {
+      x: W*0.75, y: H*0.5,
+      vx:0, vy:0,
+      hp: MAX_HP,
+      color: '#ff4d6d',
+      glow: 'rgba(255,77,109,',
+      lastAtk: 0,
+      dead: false,
+      trail: [],
+      num: 2,
+      facing: -1,
+    }
+  ];
+  projectiles = [];
+  particles_game = [];
+}
+
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function showTitle(){ clearInterval(gameLoop); showScreen('titleScreen'); }
+
+function startGame(){
+  resize();
+  showScreen('gameScreen');
+  initPlayers();
+  updateHUD();
+  if(gameLoop) clearInterval(gameLoop);
+  gameLoop = setInterval(tick, 16);
+  rotateDebugLog();
+}
+
+function rotateDebugLog(){
+  clearInterval(debugLog_timer);
+  debugLog_timer = setInterval(()=>{
+    const msg = debugMessages[Math.floor(Math.random()*debugMessages.length)];
+    document.getElementById('debugLog').textContent = msg;
+  }, 2000);
+}
+
+// Controls
+document.addEventListener('keydown', e=>{ keys[e.code]=true; e.preventDefault && (e.key==='ArrowUp'||e.key==='ArrowDown') && e.preventDefault(); });
+document.addEventListener('keyup',   e=>{ keys[e.code]=false; });
+
+function handleInput(){
+  const p1 = players[0], p2 = players[1];
+  const now = Date.now();
+
+  if(!p1.dead){
+    p1.vx = p1.vy = 0;
+    if(keys['KeyA']){ p1.vx=-SPEED; p1.facing=-1; }
+    if(keys['KeyD']){ p1.vx= SPEED; p1.facing= 1; }
+    if(keys['KeyW']){ p1.vy=-SPEED; }
+    if(keys['KeyS']){ p1.vy= SPEED; }
+    if(keys['KeyF'] && now - p1.lastAtk > ATTACK_CD){
+      p1.lastAtk = now;
+      fireProjectile(p1, p2);
+    }
+  }
+
+  if(!p2.dead){
+    p2.vx = p2.vy = 0;
+    if(keys['ArrowLeft']){ p2.vx=-SPEED; p2.facing=-1; }
+    if(keys['ArrowRight']){ p2.vx= SPEED; p2.facing= 1; }
+    if(keys['ArrowUp']){ p2.vy=-SPEED; }
+    if(keys['ArrowDown']){ p2.vy= SPEED; }
+    if(keys['KeyL'] && now - p2.lastAtk > ATTACK_CD){
+      p2.lastAtk = now;
+      fireProjectile(p2, p1);
+    }
+  }
+}
+
+function fireProjectile(shooter, target){
+  const dx = target.x - shooter.x;
+  const dy = target.y - shooter.y;
+  const dist = Math.sqrt(dx*dx+dy*dy)||1;
+  projectiles.push({
+    x: shooter.x,
+    y: shooter.y,
+    vx: (dx/dist)*PROJ_SPEED,
+    vy: (dy/dist)*PROJ_SPEED,
+    owner: shooter.num,
+    color: shooter.color,
+    glow: shooter.glow,
+    r: 5,
+    life: 120,
+  });
+  // Particle burst
+  for(let i=0;i<8;i++) spawnParticleGame(shooter.x, shooter.y, shooter.color);
+}
+
+function spawnParticleGame(x,y,color,vscale=1){
+  particles_game.push({
+    x,y,
+    vx: (Math.random()-0.5)*4*vscale,
+    vy: (Math.random()-0.5)*4*vscale,
+    life: 30+Math.random()*20,
+    maxLife: 50,
+    color,
+    r: 2+Math.random()*3,
+  });
+}
+
+function updatePhysics(){
+  players.forEach(p=>{
+    if(p.dead) return;
+    p.trail.push({x:p.x, y:p.y});
+    if(p.trail.length>8) p.trail.shift();
+
+    p.x += p.vx;
+    p.y += p.vy;
+    p.x = Math.max(PLAYER_R, Math.min(W-PLAYER_R, p.x));
+    p.y = Math.max(PLAYER_R, Math.min(H-PLAYER_R, p.y));
+  });
+
+  projectiles = projectiles.filter(pr=>{
+    pr.x += pr.vx;
+    pr.y += pr.vy;
+    pr.life--;
+    if(pr.life<=0) return false;
+    if(pr.x<0||pr.x>W||pr.y<0||pr.y>H) return false;
+
+    // Hit detection
+    const target = players.find(p=> p.num !== pr.owner && !p.dead);
+    if(target){
+      const dx = pr.x - target.x;
+      const dy = pr.y - target.y;
+      const d = Math.sqrt(dx*dx+dy*dy);
+      if(d < PLAYER_R + pr.r){
+        target.hp = Math.max(0, target.hp - ATTACK_DMG);
+        for(let i=0;i<12;i++) spawnParticleGame(pr.x, pr.y, pr.color, 1.5);
+        updateHUD();
+        if(target.hp<=0){
+          target.dead=true;
+          setTimeout(()=>endRound(), 800);
+        }
+        return false;
+      }
+    }
+    return true;
+  });
+
+  particles_game = particles_game.filter(p=>{
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.05;
+    p.life--;
+    return p.life>0;
+  });
+}
+
+function endRound(){
+  const winner = players.find(p=>!p.dead);
+  if(winner) scores[winner.num-1]++;
+  document.getElementById('scoreDisplay').textContent = `${scores[0]} — ${scores[1]}`;
+
+  if(scores[0]>=3 || scores[1]>=3){
+    clearInterval(gameLoop);
+    clearInterval(debugLog_timer);
+    const w = scores[0]>=3?1:2;
+    const wt = document.getElementById('winTitle');
+    wt.textContent = `PLAYER ${w} WINS`;
+    wt.className = 'win-title '+(w===1?'p1win':'p2win');
+    showScreen('winScreen');
+  } else {
+    initPlayers();
+    updateHUD();
+  }
+}
+
+function updateHUD(){
+  const p1 = players[0], p2 = players[1];
+  document.getElementById('hp1bar').style.width = p1.hp+'%';
+  document.getElementById('hp2bar').style.width = p2.hp+'%';
+  document.getElementById('hp1text').textContent = p1.hp;
+  document.getElementById('hp2text').textContent = p2.hp;
+  document.getElementById('scoreDisplay').textContent = `${scores[0]} — ${scores[1]}`;
+}
+
+// ============================================================
+// RENDER
+// ============================================================
+function render(){
+  ctx.clearRect(0,0,W,H);
+
+  // Floor grid
+  ctx.strokeStyle = 'rgba(0,255,180,0.04)';
+  ctx.lineWidth = 1;
+  const gs = 50;
+  for(let x=0;x<W;x+=gs){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for(let y=0;y<H;y+=gs){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+  // Center line
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.setLineDash([10,10]);
+  ctx.beginPath(); ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Particles
+  particles_game.forEach(p=>{
+    const alpha = p.life/p.maxLife;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r*alpha, 0, Math.PI*2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+
+  // Projectiles
+  projectiles.forEach(pr=>{
+    const alpha = Math.min(1, pr.life/20);
+    ctx.globalAlpha = alpha;
+    ctx.shadowColor = pr.color;
+    ctx.shadowBlur = 15;
+    ctx.fillStyle = pr.color;
+    ctx.beginPath();
+    ctx.arc(pr.x, pr.y, pr.r, 0, Math.PI*2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+  });
+
+  // Players
+  players.forEach(p=>{
+    // Trail
+    p.trail.forEach((t,i)=>{
+      const a = (i/p.trail.length)*0.3;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, PLAYER_R*(i/p.trail.length), 0, Math.PI*2);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+
+    if(p.dead) return;
+
+    // Glow
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 20;
+
+    // Body circle (crewmate shape simplified)
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, PLAYER_R, 0, Math.PI*2);
+    ctx.fill();
+
+    // Visor
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(10,20,30,0.9)';
+    ctx.beginPath();
+    ctx.ellipse(
+      p.x + p.facing*5,
+      p.y - 5,
+      10, 7,
+      0, 0, Math.PI*2
+    );
+    ctx.fill();
+
+    // Visor shine
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(
+      p.x + p.facing*4,
+      p.y - 7,
+      4, 2.5,
+      -0.3, 0, Math.PI*2
+    );
+    ctx.fill();
+
+    // HP ring
+    const hpFrac = p.hp/MAX_HP;
+    ctx.strokeStyle = p.color;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.4;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, PLAYER_R+6, -Math.PI/2, -Math.PI/2 + Math.PI*2*hpFrac);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 1;
+  });
+
+  ctx.shadowBlur = 0;
+}
+
+function tick(){
+  handleInput();
+  updatePhysics();
+  render();
+}
+
+window.addEventListener('resize', ()=>{ if(gameLoop){ resize(); initPlayers(); } });
+
+// ============================================================
+// TOUCH CONTROLS
+// ============================================================
+function setupTouch(){
+  const map = {
+    'p1up':    'KeyW',
+    'p1down':  'KeyS',
+    'p1left':  'KeyA',
+    'p1right': 'KeyD',
+    'p1atk':   'KeyF',
+    'p2up':    'ArrowUp',
+    'p2down':  'ArrowDown',
+    'p2left':  'ArrowLeft',
+    'p2right': 'ArrowRight',
+    'p2atk':   'KeyL',
+  };
+  Object.entries(map).forEach(([id, code]) => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    const press = (e) => { e.preventDefault(); keys[code] = true; el.classList.add('pressed'); };
+    const release = (e) => { e.preventDefault(); keys[code] = false; el.classList.remove('pressed'); };
+    el.addEventListener('touchstart', press, {passive:false});
+    el.addEventListener('touchend', release, {passive:false});
+    el.addEventListener('touchcancel', release, {passive:false});
+    el.addEventListener('mousedown', press);
+    el.addEventListener('mouseup', release);
+    el.addEventListener('mouseleave', release);
+  });
+}
+setupTouch();
+
+// Reduce canvas height on mobile to make room for controls
+function mobileResize(){
+  const isMobile = window.innerWidth < 768;
+  if(isMobile){
+    const hud = document.querySelector('.hud');
+    const dbg = document.querySelector('.debug-log');
+    const touch = document.getElementById('touchUI');
+    const hudH = hud ? hud.offsetHeight : 60;
+    const dbgH = dbg ? dbg.offsetHeight : 28;
+    const touchH = touch ? touch.offsetHeight : 180;
+    const avail = window.innerHeight - hudH - dbgH - touchH;
+    const cc = document.querySelector('.canvas-container');
+    if(cc) cc.style.height = avail + 'px';
+  }
+}
+mobileResize();
+window.addEventListener('resize', mobileResize);
+</script>
+</body>
+</html>
